@@ -1,6 +1,8 @@
 import math
 import random
 import tkinter as tk
+from ctypes import Structure, byref, windll
+from ctypes.wintypes import LONG
 
 
 TRANSPARENT = "#ff00ff"
@@ -9,6 +11,15 @@ CAT_HEIGHT = 96
 WINDOW_WIDTH = 210
 WINDOW_HEIGHT = 172
 GROUND_Y = 142
+
+
+class Rect(Structure):
+    _fields_ = [
+        ('left', LONG),
+        ('top', LONG),
+        ('right', LONG),
+        ('bottom', LONG),
+    ]
 
 
 class DoughCat:
@@ -37,6 +48,33 @@ class DoughCat:
         self.always_on_top = True
         self.walking_enabled = True
         self.bubbles_enabled = True
+        self.appearance = "cream"
+        self.themes = {
+            "cream": {
+                "menu_label": "小黑猫面团",
+                "body": "#fff3df",
+                "body_light": "#fff9ec",
+                "shadow": "#efdcc5",
+                "outline": "#8b6b55",
+                "inner_ear": "#f6b3bf",
+                "eye": "#3a2a24",
+                "nose": "#8b6b55",
+                "mouth": "#3a2a24",
+                "blush": "#f6b3bf",
+            },
+            "black": {
+                "menu_label": "奶白面团猫",
+                "body": "#252225",
+                "body_light": "#343037",
+                "shadow": "#151316",
+                "outline": "#0f0d10",
+                "inner_ear": "#8b5c72",
+                "eye": "#ffd86b",
+                "nose": "#f0a6b5",
+                "mouth": "#ffe7b7",
+                "blush": "#b36b82",
+            },
+        }
         self.state = "idle"
         self.face = "normal"
         self.facing = 1
@@ -73,6 +111,7 @@ class DoughCat:
             "舒服喵",
             "再摸一下",
             "软乎乎",
+            "被rua了",
             "呼噜呼噜",
         ]
         self.walk_lines = [
@@ -114,6 +153,10 @@ class DoughCat:
             label="隐藏气泡" if self.bubbles_enabled else "显示气泡",
             command=self._toggle_bubbles,
         )
+        self.menu.add_command(
+            label=f"切换为{self.themes[self.appearance]['menu_label']}",
+            command=self._toggle_appearance,
+        )
         self.menu.add_command(label="重置位置", command=self._place_bottom_right)
         self.menu.add_separator()
         self.menu.add_command(label="退出", command=self.root.destroy)
@@ -136,15 +179,41 @@ class DoughCat:
             self.bubble_text = ""
         self._build_menu()
 
+    def _toggle_appearance(self) -> None:
+        self.appearance = "black" if self.appearance == "cream" else "cream"
+        self._build_menu()
+        self._draw()
+
+    def _colors(self) -> dict[str, str]:
+        return self.themes[self.appearance]
+
     def _show_menu(self, event: tk.Event) -> None:
         self._build_menu()
         self.menu.tk_popup(event.x_root, event.y_root)
 
     def _place_bottom_right(self) -> None:
         self.root.update_idletasks()
-        x = self.root.winfo_screenwidth() - WINDOW_WIDTH - 48
-        y = self.root.winfo_screenheight() - WINDOW_HEIGHT - 84
-        self.root.geometry(f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}+{max(0, x)}+{max(0, y)}")
+        left, top, right, bottom = self._get_work_area()
+        x = right - WINDOW_WIDTH - 48
+        y = bottom - WINDOW_HEIGHT - 36
+        x, y = self._clamp_window_position(x, y)
+        self.root.geometry(f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}+{x}+{y}")
+
+    def _get_work_area(self) -> tuple[int, int, int, int]:
+        rect = Rect()
+        try:
+            windll.user32.SystemParametersInfoW(0x0030, 0, byref(rect), 0)
+            return rect.left, rect.top, rect.right, rect.bottom
+        except Exception:
+            return 0, 0, self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+
+    def _clamp_window_position(self, x: float, y: float) -> tuple[int, int]:
+        left, top, right, bottom = self._get_work_area()
+        max_x = max(left, right - WINDOW_WIDTH)
+        max_y = max(top, bottom - WINDOW_HEIGHT)
+        clamped_x = min(max(int(round(x)), left), max_x)
+        clamped_y = min(max(int(round(y)), top), max_y)
+        return clamped_x, clamped_y
 
     def _on_press(self, event: tk.Event) -> None:
         self.press_x = event.x
@@ -165,9 +234,11 @@ class DoughCat:
         dy = event.y_root - self.press_root_y
         if abs(dx) + abs(dy) > 8:
             self.dragging = True
-            self.root.geometry(
-                f"+{self.window_start_x + dx}+{self.window_start_y + dy}"
+            x, y = self._clamp_window_position(
+                self.window_start_x + dx,
+                self.window_start_y + dy,
             )
+            self.root.geometry(f"+{x}+{y}")
         self.stretch_x = max(-1.0, min(1.0, dx / 90))
         self.stretch_y = max(-1.0, min(1.0, dy / 90))
         self.squash = 1.0
@@ -226,14 +297,20 @@ class DoughCat:
         if self.state == "walk":
             x = self.root.winfo_x()
             y = self.root.winfo_y()
-            next_x = x + self.walk_vx
-            next_y = y + self.walk_vy
+            next_x, next_y = self._clamp_window_position(
+                x + self.walk_vx,
+                y + self.walk_vy,
+            )
             reached = (
                 abs(self.walk_target_x - next_x) <= abs(self.walk_vx) + 1
                 and abs(self.walk_target_y - next_y) <= abs(self.walk_vy) + 1
             )
             if reached:
-                self.root.geometry(f"+{self.walk_target_x}+{self.walk_target_y}")
+                target_x, target_y = self._clamp_window_position(
+                    self.walk_target_x,
+                    self.walk_target_y,
+                )
+                self.root.geometry(f"+{target_x}+{target_y}")
                 self.state = "idle"
                 self.next_walk = self._future_tick(450, 1350)
                 return
@@ -243,14 +320,13 @@ class DoughCat:
         if self.tick < self.next_walk:
             return
 
-        screen_w = self.root.winfo_screenwidth()
-        screen_h = self.root.winfo_screenheight()
-        start_x = self.root.winfo_x()
-        start_y = self.root.winfo_y()
+        start_x, start_y = self._clamp_window_position(
+            self.root.winfo_x(),
+            self.root.winfo_y(),
+        )
         distance = random.randint(40, 160) * random.choice([-1, 1])
         drift_y = random.randint(-24, 24)
-        target_x = max(0, min(screen_w - WINDOW_WIDTH, start_x + distance))
-        target_y = max(0, min(screen_h - WINDOW_HEIGHT - 36, start_y + drift_y))
+        target_x, target_y = self._clamp_window_position(start_x + distance, start_y + drift_y)
         steps = max(35, min(95, abs(target_x - start_x) // 2 + 35))
 
         if target_x == start_x and target_y == start_y:
@@ -299,13 +375,14 @@ class DoughCat:
             self._draw_bubble(self.bubble_text)
 
     def _draw_body(self, left: float, top: float, right: float, bottom: float) -> None:
+        c = self._colors()
         self.canvas.create_oval(
             left + 5,
             top + 8,
             right - 4,
             bottom,
-            fill="#fff3df",
-            outline="#8b6b55",
+            fill=c["body"],
+            outline=c["outline"],
             width=3,
         )
         self.canvas.create_arc(
@@ -316,58 +393,60 @@ class DoughCat:
             start=200,
             extent=125,
             style="arc",
-            outline="#efdcc5",
+            outline=c["shadow"],
             width=2,
         )
 
     def _draw_ears(self, cx: float, top: float, body_w: float) -> None:
-        ear_y = top + 22
+        c = self._colors()
+        ear_y = top + 20
         left_ear = [
-            cx - body_w * 0.33,
-            ear_y + 14,
-            cx - body_w * 0.18,
-            ear_y - 20,
-            cx - body_w * 0.07,
+            cx - body_w * 0.39,
             ear_y + 18,
+            cx - body_w * 0.20,
+            ear_y - 32,
+            cx - body_w * 0.04,
+            ear_y + 20,
         ]
         right_ear = [
-            cx + body_w * 0.07,
+            cx + body_w * 0.04,
+            ear_y + 20,
+            cx + body_w * 0.20,
+            ear_y - 32,
+            cx + body_w * 0.39,
             ear_y + 18,
-            cx + body_w * 0.18,
-            ear_y - 20,
-            cx + body_w * 0.33,
-            ear_y + 14,
         ]
-        self.canvas.create_polygon(left_ear, fill="#fff3df", outline="#8b6b55", width=3, smooth=True)
-        self.canvas.create_polygon(right_ear, fill="#fff3df", outline="#8b6b55", width=3, smooth=True)
+        self.canvas.create_polygon(left_ear, fill=c["body"], outline=c["outline"], width=3, smooth=True)
+        self.canvas.create_polygon(right_ear, fill=c["body"], outline=c["outline"], width=3, smooth=True)
         self.canvas.create_polygon(
             [
-                cx - body_w * 0.26,
+                cx - body_w * 0.29,
                 ear_y + 8,
-                cx - body_w * 0.19,
-                ear_y - 7,
-                cx - body_w * 0.14,
-                ear_y + 10,
+                cx - body_w * 0.20,
+                ear_y - 16,
+                cx - body_w * 0.11,
+                ear_y + 11,
             ],
-            fill="#f6b3bf",
+            fill=c["inner_ear"],
             outline="",
             smooth=True,
         )
         self.canvas.create_polygon(
             [
-                cx + body_w * 0.14,
-                ear_y + 10,
-                cx + body_w * 0.19,
-                ear_y - 7,
-                cx + body_w * 0.26,
+                cx + body_w * 0.11,
+                ear_y + 11,
+                cx + body_w * 0.20,
+                ear_y - 16,
+                cx + body_w * 0.29,
                 ear_y + 8,
             ],
-            fill="#f6b3bf",
+            fill=c["inner_ear"],
             outline="",
             smooth=True,
         )
 
     def _draw_tail(self, cx: float, cy: float, body_w: float, body_h: float) -> None:
+        c = self._colors()
         wag = math.sin(self.tick / 8) * 8
         if self.state == "walk":
             wag = math.sin(self.tick / 2.5) * 12
@@ -380,7 +459,7 @@ class DoughCat:
             base_y,
             tip_x,
             tip_y,
-            fill="#8b6b55",
+            fill=c["outline"],
             width=12,
             capstyle="round",
             smooth=True,
@@ -390,13 +469,14 @@ class DoughCat:
             base_y,
             tip_x,
             tip_y,
-            fill="#fff3df",
+            fill=c["body"],
             width=8,
             capstyle="round",
             smooth=True,
         )
 
     def _draw_paws(self, cx: float, cy: float, body_w: float) -> None:
+        c = self._colors()
         step = math.sin(self.tick / 3.0) * 5 if self.state == "walk" else 0
         paw_y = cy - 18
         for offset, lift in [(-22, step), (22, -step)]:
@@ -405,12 +485,13 @@ class DoughCat:
                 paw_y - 6 + max(0, lift),
                 cx + offset + 9,
                 paw_y + 10 + max(0, lift),
-                fill="#fff9ec",
-                outline="#8b6b55",
+                fill=c["body_light"],
+                outline=c["outline"],
                 width=2,
             )
 
     def _draw_face(self, cx: float, top: float, body_w: float, body_h: float) -> None:
+        c = self._colors()
         eye_y = top + body_h * 0.46
         mouth_y = top + body_h * 0.60
         eye_dx = body_w * 0.18
@@ -424,7 +505,7 @@ class DoughCat:
                 start=200,
                 extent=140,
                 style="arc",
-                outline="#3a2a24",
+                outline=c["mouth"],
                 width=3,
             )
             self.canvas.create_arc(
@@ -435,7 +516,7 @@ class DoughCat:
                 start=200,
                 extent=140,
                 style="arc",
-                outline="#3a2a24",
+                outline=c["mouth"],
                 width=3,
             )
         else:
@@ -444,7 +525,7 @@ class DoughCat:
                 eye_y - 5,
                 cx - eye_dx + 4,
                 eye_y + 5,
-                fill="#3a2a24",
+                fill=c["eye"],
                 outline="",
             )
             self.canvas.create_oval(
@@ -452,11 +533,11 @@ class DoughCat:
                 eye_y - 5,
                 cx + eye_dx + 4,
                 eye_y + 5,
-                fill="#3a2a24",
+                fill=c["eye"],
                 outline="",
             )
 
-        self.canvas.create_oval(cx - 4, mouth_y - 4, cx + 4, mouth_y + 3, fill="#8b6b55", outline="")
+        self.canvas.create_oval(cx - 4, mouth_y - 4, cx + 4, mouth_y + 3, fill=c["nose"], outline="")
         self.canvas.create_arc(
             cx - 14,
             mouth_y - 1,
@@ -465,7 +546,7 @@ class DoughCat:
             start=290,
             extent=145,
             style="arc",
-            outline="#3a2a24",
+            outline=c["mouth"],
             width=2,
         )
         self.canvas.create_arc(
@@ -476,18 +557,19 @@ class DoughCat:
             start=105,
             extent=145,
             style="arc",
-            outline="#3a2a24",
+            outline=c["mouth"],
             width=2,
         )
-        self.canvas.create_oval(cx - 38, mouth_y + 1, cx - 25, mouth_y + 11, fill="#f6b3bf", outline="")
-        self.canvas.create_oval(cx + 25, mouth_y + 1, cx + 38, mouth_y + 11, fill="#f6b3bf", outline="")
+        self.canvas.create_oval(cx - 38, mouth_y + 1, cx - 25, mouth_y + 11, fill=c["blush"], outline="")
+        self.canvas.create_oval(cx + 25, mouth_y + 1, cx + 38, mouth_y + 11, fill=c["blush"], outline="")
 
     def _draw_bubble(self, text: str) -> None:
+        c = self._colors()
         text_id = self.canvas.create_text(
             WINDOW_WIDTH / 2,
             25,
             text=text,
-            fill="#5b4031",
+            fill=c["outline"],
             font=("Microsoft YaHei UI", 10, "bold"),
         )
         bbox = self.canvas.bbox(text_id)
@@ -501,7 +583,7 @@ class DoughCat:
         bx2 = min(WINDOW_WIDTH - 8, x2 + pad_x)
         by2 = y2 + pad_y
         self.canvas.delete(text_id)
-        self._rounded_rect(bx1, by1, bx2, by2, radius=12, fill="#fffdf8", outline="#8b6b55")
+        self._rounded_rect(bx1, by1, bx2, by2, radius=12, fill="#fffdf8", outline=c["outline"])
         self.canvas.create_polygon(
             WINDOW_WIDTH / 2 - 7,
             by2 - 1,
@@ -510,13 +592,13 @@ class DoughCat:
             WINDOW_WIDTH / 2,
             by2 + 10,
             fill="#fffdf8",
-            outline="#8b6b55",
+            outline=c["outline"],
         )
         self.canvas.create_text(
             (bx1 + bx2) / 2,
             (by1 + by2) / 2,
             text=text,
-            fill="#5b4031",
+            fill=c["outline"],
             font=("Microsoft YaHei UI", 10, "bold"),
         )
 
