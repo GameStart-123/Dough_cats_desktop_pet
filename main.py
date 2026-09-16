@@ -6,11 +6,11 @@ from ctypes.wintypes import LONG
 
 
 TRANSPARENT = "#ff00ff"
-CAT_WIDTH = 112
-CAT_HEIGHT = 96
-WINDOW_WIDTH = 210
-WINDOW_HEIGHT = 172
-GROUND_Y = 142
+CAT_WIDTH = 96
+CAT_HEIGHT = 82
+WINDOW_WIDTH = 184
+WINDOW_HEIGHT = 152
+GROUND_Y = 126
 
 
 class Rect(Structure):
@@ -49,6 +49,7 @@ class DoughCat:
         self.walking_enabled = True
         self.bubbles_enabled = True
         self.appearance = "cream"
+        self.appearance_order = ["cream", "black", "gold"]
         self.themes = {
             "cream": {
                 "menu_label": "小黑猫面团",
@@ -63,7 +64,7 @@ class DoughCat:
                 "blush": "#f6b3bf",
             },
             "black": {
-                "menu_label": "奶白面团猫",
+                "menu_label": "金面团猫",
                 "body": "#252225",
                 "body_light": "#343037",
                 "shadow": "#151316",
@@ -73,6 +74,18 @@ class DoughCat:
                 "nose": "#f0a6b5",
                 "mouth": "#ffe7b7",
                 "blush": "#b36b82",
+            },
+            "gold": {
+                "menu_label": "奶白面团猫",
+                "body": "#f7c948",
+                "body_light": "#ffe69a",
+                "shadow": "#d79b00",
+                "outline": "#8a5a00",
+                "inner_ear": "#ffd1a3",
+                "eye": "#3a2612",
+                "nose": "#b85f28",
+                "mouth": "#4b2a12",
+                "blush": "#ff9f6e",
             },
         }
         self.state = "idle"
@@ -180,7 +193,8 @@ class DoughCat:
         self._build_menu()
 
     def _toggle_appearance(self) -> None:
-        self.appearance = "black" if self.appearance == "cream" else "cream"
+        current = self.appearance_order.index(self.appearance)
+        self.appearance = self.appearance_order[(current + 1) % len(self.appearance_order)]
         self._build_menu()
         self._draw()
 
@@ -324,10 +338,10 @@ class DoughCat:
             self.root.winfo_x(),
             self.root.winfo_y(),
         )
-        distance = random.randint(40, 160) * random.choice([-1, 1])
-        drift_y = random.randint(-24, 24)
+        distance = random.randint(18, 56) * random.choice([-1, 1])
+        drift_y = random.randint(-10, 10)
         target_x, target_y = self._clamp_window_position(start_x + distance, start_y + drift_y)
-        steps = max(35, min(95, abs(target_x - start_x) // 2 + 35))
+        steps = max(24, min(52, abs(target_x - start_x) + 18))
 
         if target_x == start_x and target_y == start_y:
             self.next_walk = self._future_tick(300, 900)
@@ -396,6 +410,13 @@ class DoughCat:
             outline=c["shadow"],
             width=2,
         )
+        if self.appearance == "gold":
+            self.canvas.create_oval(left + 31, top + 24, left + 42, top + 35, fill="#fff6bd", outline="")
+            self.canvas.create_oval(right - 36, top + 33, right - 27, top + 42, fill="#ffe082", outline="")
+            sparkle_x = right - 47
+            sparkle_y = top + 21
+            self.canvas.create_line(sparkle_x - 5, sparkle_y, sparkle_x + 5, sparkle_y, fill="#fff8d6", width=2)
+            self.canvas.create_line(sparkle_x, sparkle_y - 5, sparkle_x, sparkle_y + 5, fill="#fff8d6", width=2)
 
     def _draw_ears(self, cx: float, top: float, body_w: float) -> None:
         c = self._colors()
